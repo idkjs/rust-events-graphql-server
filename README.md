@@ -108,7 +108,7 @@ In `Main.rs` remove the starter function and add
     }
 ```
 
-Above `fn.main` add a handler to `graphql` route.
+After or before `fn.main` add a handler to `graphql` route.
 
 ```rs
    fn graphql(
@@ -153,4 +153,118 @@ Run `echo DATABASE_URL=postgres://localhost/events_graphql_server > .env`
 
 Deisel will pick up the db we want to use from here.
 
+Run `diesel setup` then create `migrations` with `diesel migration generate create_events`
 
+```bsh
+➜  events-graphql-server [master*]echo DATABASE_URL=postgres://localhost/events_graphql_server > .env
+➜  events-graphql-server [master*]diesel setup
+Creating migrations directory at: /Users/prisc_000/working/DEMOS/events-graphql-server/migrations
+Creating database: events_graphql_server
+➜  events-graphql-server [master*]diesel migration generate create_events
+Creating migrations/2019-09-17-203546_create_events/up.sql
+Creating migrations/2019-09-17-203546_create_events/down.sql
+➜  events-graphql-server [master*]
+```
+
+Create `sql` to seed your db:
+            kind: "React".to_owned(),
+            title: "React".to_owned(),
+            description: "React".to_owned(),
+            link: "React".to_owned(),
+```sql
+
+    CREATE TABLE events (
+      id SERIAL PRIMARY KEY,
+      title VARCHAR NOT NULL,
+      description VARCHAR NOT NULL,
+      link VARCHAR NOT NULL,
+      kind VARCHAR NOT NULL,
+    );
+
+    INSERT INTO events(title, description, link, kind) VALUES ('Link','Description for Link Event', 'www.google.com', 'meetup');
+    INSERT INTO events(title, description, link, kind) VALUES ('Mario','Description for Link Event', 'www.google.com', 'meetup');
+    INSERT INTO events(title, description, link, kind) VALUES ('Kirby','Description for Link Event', 'www.google.com', 'dinner');
+    INSERT INTO events(title, description, link, kind) VALUES ('Ganondorf','Description for Link Event', 'www.google.com', 'planning');
+    INSERT INTO events(title, description, link, kind) VALUES ('Bowser','Description for Link Event', 'www.google.com', 'meetup');
+    INSERT INTO events(title, description, link, kind) VALUES ('Mewtwo','Description for Link Event', 'www.google.com', 'meetup');
+
+```
+
+In `down.sql` add `DROP TABLE events;` You can destroy the data by running `diesel migration redo`.
+
+Check the generated `schema.rs` file. This is the schema deisel will use.
+
+Run the migrations with `diesel migration run`.
+
+The reason why we named the GraphQL schema file `graphql_schema.rs` instead of `schema.rs`, is because `diesel` overwrites that file in our `src` directory by default.
+
+## Wiring up our Handlers with Diesel
+
+Update your `graphql_schema.rs` file like so:
+
+```rs
+use juniper::{EmptyMutation,RootNode};
+
+#[derive(Queryable)]
+struct Event {
+    pub id: i32,
+    pub kind: String,
+    pub title: String,
+    pub description: String,
+    pub link: String,
+    }
+
+#[juniper::object(description = "A member of a team")]
+    impl Event {
+      pub fn id(&self) -> i32 {
+        self.id
+      }
+      pub fn kind(&self) -> &str {
+        self.kind.as_str()
+      }
+      pub fn title(&self) -> &str {
+        self.title.as_str()
+      }
+      pub fn description(&self) -> &str {
+        self.description.as_str()
+      }
+      pub fn link(&self) -> &str {
+        self.link.as_str()
+      }
+    }
+```
+
+Add a root call for `Events` still in `graphql_schema.rs`
+
+```rs
+extern crate dotenv;
+
+use std::env;
+
+use diesel::pg::PgConnection;
+use diesel::prelude::*;
+use dotenv::dotenv;
+use juniper::{EmptyMutation,RootNode};
+
+use crate::schema::events;
+
+pub struct QueryRoot;
+
+fn establish_connection() -> PgConnection {
+  dotenv().ok();
+  let database_url = env::var("DATABASE_URL").expect("DATABASE_URL must be set");
+  PgConnection::establish(&database_url).expect(&format!("Error connecting to {}", database_url))
+}
+
+#[juniper::object]
+impl QueryRoot {
+  fn events() -> Vec<Member> {
+    use crate::schema::events::dsl::*;
+    let connection = establish_connection();
+    events
+      .limit(100)
+      .load::<Member>(&connection)
+      .expect("Error loading events")
+  }
+}
+```
